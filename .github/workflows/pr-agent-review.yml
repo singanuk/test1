@@ -106,6 +106,9 @@ jobs:
           GITHUB_ACTION_CONFIG.AUTO_REVIEW:   "true"
           GITHUB_ACTION_CONFIG.AUTO_DESCRIBE: "true"
           GITHUB_ACTION_CONFIG.AUTO_IMPROVE:  "false"
+          # Default PR_ACTIONS is ["opened","reopened","ready_for_review","review_requested"].
+          # Adding "synchronize" so PR-Agent re-fires when new commits land on the PR.
+          GITHUB_ACTION_CONFIG.PR_ACTIONS: '["opened","reopened","ready_for_review","review_requested","synchronize"]'
 
           PR_REVIEWER.REQUIRE_TESTS_REVIEW:        "true"
           PR_REVIEWER.REQUIRE_SECURITY_REVIEW:     "true"
