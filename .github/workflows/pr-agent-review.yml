@@ -6,13 +6,23 @@ name: PR Review (Qodo + DeepSeek V4 Pro via OpenRouter)
 #
 # How it works:
 # - Triggers on PR open / push / slash commands (/review, /describe, /improve, /ask)
-# - Routes to a per-repo HOST-side runner registered as `host-<repo-slug>`
-#   (NOT the VM ephemeral runners — those are for full CI test execution).
+# - Runs on GitHub-hosted ubuntu-latest. PR-Agent is a Docker container action
+#   that ONLY runs on Linux; Windows self-hosted runners cannot execute it.
+#   GitHub-hosted ubuntu-latest minutes are free up to 2000/month for personal
+#   repos, which covers ~1000 PR reviews at ~2 min/run.
 # - Calls Qodo PR-Agent → OpenRouter → DeepSeek V4 Pro
 # - Posts auto-description + auto-review on every PR
 #
-# Cost: ~$0.015-0.03 per PR via OpenRouter.
-# Privacy: US-hosted (OpenRouter). No code goes to China-based DeepSeek API.
+# Cost: ~$0.015-0.03 per PR via OpenRouter LLM tokens, plus GitHub Actions
+#   minutes (free within quota; $0.008/min Linux beyond 2000 min/mo for private repos).
+# Privacy: US-hosted (OpenRouter for LLM, GitHub-hosted Linux for runner).
+#   Diff is sent to (a) OpenRouter→inference provider and (b) GitHub's ephemeral
+#   runner during execution. If trading code in diff is too sensitive even for
+#   ephemeral GitHub runners, options are:
+#     1. Use a self-hosted Linux runner (e.g. WSL2 Ubuntu via
+#        Install-Wsl2LinuxRunner.ps1) and change runs-on to those labels.
+#     2. Convert to PR-Agent's Python CLI (pip install pr-agent) running
+#        directly on a Windows self-hosted runner without the container action.
 #
 # Customization per-repo:
 # - paths-ignore: edit to match repo's docs/configs that don't need review
@@ -71,10 +81,11 @@ jobs:
         startsWith(github.event.comment.body, '/ask'))) ||
       github.event_name == 'workflow_dispatch'
 
-    # Routes to per-repo host-side runner.
-    # The `windows-ci` label is intentionally OMITTED so this does not match
-    # VM ephemeral runners (which have that label).
-    runs-on: [self-hosted, Windows, X64]
+    # GitHub-hosted Linux. PR-Agent is a Docker container action and CANNOT
+    # run on Windows. Self-hosted Linux runners (e.g. WSL2 via
+    # Install-Wsl2LinuxRunner.ps1) work too — change to that runner's labels
+    # if you want to keep CI fully off-GitHub.
+    runs-on: ubuntu-latest
     timeout-minutes: 10
 
     permissions:
