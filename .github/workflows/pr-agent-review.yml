@@ -1,0 +1,112 @@
+name: PR Review (Qodo + DeepSeek V4 Pro via OpenRouter)
+
+# Generic PR-Agent workflow template.
+# Source of truth: D:\Windows-CI\Templates\pr-agent-workflow.yml
+# Deployed to consumer repos via D:\Windows-CI\Scripts\Add-PRAgentToRepo.ps1
+#
+# How it works:
+# - Triggers on PR open / push / slash commands (/review, /describe, /improve, /ask)
+# - Routes to a per-repo HOST-side runner registered as `host-<repo-slug>`
+#   (NOT the VM ephemeral runners — those are for full CI test execution).
+# - Calls Qodo PR-Agent → OpenRouter → DeepSeek V4 Pro
+# - Posts auto-description + auto-review on every PR
+#
+# Cost: ~$0.015-0.03 per PR via OpenRouter.
+# Privacy: US-hosted (OpenRouter). No code goes to China-based DeepSeek API.
+#
+# Customization per-repo:
+# - paths-ignore: edit to match repo's docs/configs that don't need review
+# - CONFIG.MODEL: swap to a different model if needed
+# - GITHUB_ACTION_CONFIG.AUTO_IMPROVE: enable for code suggestions on every PR
+
+on:
+  pull_request:
+    types: [opened, ready_for_review, synchronize]
+    paths-ignore:
+      - "**.md"
+      - "**.txt"
+      - "**.rst"
+      - "**.png"
+      - "**.jpg"
+      - "**.jpeg"
+      - "**.gif"
+      - "**.pdf"
+      - "**.docx"
+      - "**.pptx"
+      - "**.xlsx"
+      - ".gitignore"
+      - ".gitattributes"
+      - "LICENSE"
+      - "CHANGELOG.md"
+      - "docs/**"
+      - ".github/**/*.md"
+
+  # Allow PR comments like /review, /describe, /improve, /ask to trigger PR-Agent
+  issue_comment:
+    types: [created]
+
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number (manual trigger)"
+        required: true
+        type: string
+
+# Cancel any in-flight review when a new commit lands on the PR
+concurrency:
+  group: pr-agent-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number }}
+  cancel-in-progress: true
+
+jobs:
+  pr_agent:
+    if: |
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.draft == false &&
+       github.event.pull_request.user.type != 'Bot') ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request != null &&
+       (startsWith(github.event.comment.body, '/review') ||
+        startsWith(github.event.comment.body, '/describe') ||
+        startsWith(github.event.comment.body, '/improve') ||
+        startsWith(github.event.comment.body, '/ask'))) ||
+      github.event_name == 'workflow_dispatch'
+
+    # Routes to per-repo host-side runner.
+    # The `windows-ci` label is intentionally OMITTED so this does not match
+    # VM ephemeral runners (which have that label).
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 10
+
+    permissions:
+      pull-requests: write
+      contents: read
+      issues: write
+
+    steps:
+      - name: PR Agent
+        uses: qodo-ai/pr-agent@main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+          CONFIG.MODEL: "openrouter/deepseek/deepseek-v4-pro"
+          CONFIG.FALLBACK_MODELS: '["openrouter/deepseek/deepseek-v4-flash"]'
+          OPENROUTER.KEY: ${{ secrets.OPENROUTER_API_KEY }}
+
+          GITHUB_ACTION_CONFIG.AUTO_REVIEW:   "true"
+          GITHUB_ACTION_CONFIG.AUTO_DESCRIBE: "true"
+          GITHUB_ACTION_CONFIG.AUTO_IMPROVE:  "false"
+
+          PR_REVIEWER.REQUIRE_TESTS_REVIEW:        "true"
+          PR_REVIEWER.REQUIRE_SECURITY_REVIEW:     "true"
+          PR_REVIEWER.REQUIRE_FOCUSED_REVIEW:      "true"
+          PR_REVIEWER.NUM_CODE_SUGGESTIONS:        "0"
+
+          PR_DESCRIPTION.PUBLISH_LABELS:           "true"
+          PR_DESCRIPTION.ADD_ORIGINAL_USER_DESCRIPTION: "true"
+          PR_DESCRIPTION.GENERATE_AI_TITLE:        "false"
+
+          CONFIG.MAX_DESCRIPTION_TOKENS:           "1500"
+          CONFIG.MAX_COMMITS_TOKENS:               "500"
+          CONFIG.PATCH_EXTRA_LINES:                "1"
+          CONFIG.LOG_LEVEL:                        "INFO"
+          CONFIG.GIT_PROVIDER:                     "github"
