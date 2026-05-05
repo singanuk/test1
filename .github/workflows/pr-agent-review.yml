@@ -124,3 +124,8 @@ jobs:
           CONFIG.PATCH_EXTRA_LINES:                "1"
           CONFIG.LOG_LEVEL:                        "INFO"
           CONFIG.GIT_PROVIDER:                     "github"
+          # DeepSeek V4 (Pro/Flash) and other newer models aren't in PR-Agent's
+          # hardcoded MAX_TOKENS dict yet. Without this, calls fail with:
+          #   "Ensure <model> is defined in MAX_TOKENS in ./pr_agent/algo/__init__.py"
+          # 65536 is well below V4's 1M context but plenty for PR diff review.
+          CONFIG.CUSTOM_MODEL_MAX_TOKENS:          "65536"
