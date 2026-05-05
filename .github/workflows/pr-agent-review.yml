@@ -81,11 +81,12 @@ jobs:
         startsWith(github.event.comment.body, '/ask'))) ||
       github.event_name == 'workflow_dispatch'
 
-    # GitHub-hosted Linux. PR-Agent is a Docker container action and CANNOT
-    # run on Windows. Self-hosted Linux runners (e.g. WSL2 via
-    # Install-Wsl2LinuxRunner.ps1) work too — change to that runner's labels
-    # if you want to keep CI fully off-GitHub.
-    runs-on: ubuntu-latest
+    # Self-hosted WSL2 Ubuntu runner on the trading machine. Set up via
+    # D:\Windows-CI\Scripts\Install-Wsl2LinuxRunner.ps1 (one-time, per repo).
+    # Avoids GitHub-hosted Linux minutes entirely. The `Linux` label
+    # differentiates from the Windows runners (which use `Windows`).
+    # Code never leaves the trading machine; OpenRouter is the only outbound.
+    runs-on: [self-hosted, Linux, X64, local-wsl, windows-ci]
     timeout-minutes: 10
 
     permissions:
