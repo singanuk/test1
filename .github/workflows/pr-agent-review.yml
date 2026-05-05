@@ -1,0 +1,132 @@
+name: PR Review (Qodo + DeepSeek V4 Pro via OpenRouter)
+
+# Generic PR-Agent workflow template.
+# Source of truth: D:\Windows-CI\Templates\pr-agent-workflow.yml
+# Deployed to consumer repos via D:\Windows-CI\Scripts\Add-PRAgentToRepo.ps1
+#
+# How it works:
+# - Triggers on PR open / push / slash commands (/review, /describe, /improve, /ask)
+# - Runs on GitHub-hosted ubuntu-latest. PR-Agent is a Docker container action
+#   that ONLY runs on Linux; Windows self-hosted runners cannot execute it.
+#   GitHub-hosted ubuntu-latest minutes are free up to 2000/month for personal
+#   repos, which covers ~1000 PR reviews at ~2 min/run.
+# - Calls Qodo PR-Agent → OpenRouter → DeepSeek V4 Pro
+# - Posts auto-description + auto-review on every PR
+#
+# Cost: ~$0.015-0.03 per PR via OpenRouter LLM tokens, plus GitHub Actions
+#   minutes (free within quota; $0.008/min Linux beyond 2000 min/mo for private repos).
+# Privacy: US-hosted (OpenRouter for LLM, GitHub-hosted Linux for runner).
+#   Diff is sent to (a) OpenRouter→inference provider and (b) GitHub's ephemeral
+#   runner during execution. If trading code in diff is too sensitive even for
+#   ephemeral GitHub runners, options are:
+#     1. Use a self-hosted Linux runner (e.g. WSL2 Ubuntu via
+#        Install-Wsl2LinuxRunner.ps1) and change runs-on to those labels.
+#     2. Convert to PR-Agent's Python CLI (pip install pr-agent) running
+#        directly on a Windows self-hosted runner without the container action.
+#
+# Customization per-repo:
+# - paths-ignore: edit to match repo's docs/configs that don't need review
+# - CONFIG.MODEL: swap to a different model if needed
+# - GITHUB_ACTION_CONFIG.AUTO_IMPROVE: enable for code suggestions on every PR
+
+on:
+  pull_request:
+    types: [opened, ready_for_review, synchronize]
+    paths-ignore:
+      - "**.md"
+      - "**.txt"
+      - "**.rst"
+      - "**.png"
+      - "**.jpg"
+      - "**.jpeg"
+      - "**.gif"
+      - "**.pdf"
+      - "**.docx"
+      - "**.pptx"
+      - "**.xlsx"
+      - ".gitignore"
+      - ".gitattributes"
+      - "LICENSE"
+      - "CHANGELOG.md"
+      - "docs/**"
+      - ".github/**/*.md"
+
+  # Allow PR comments like /review, /describe, /improve, /ask to trigger PR-Agent
+  issue_comment:
+    types: [created]
+
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number (manual trigger)"
+        required: true
+        type: string
+
+# Cancel any in-flight review when a new commit lands on the PR
+concurrency:
+  group: pr-agent-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number }}
+  cancel-in-progress: true
+
+jobs:
+  pr_agent:
+    if: |
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.draft == false &&
+       github.event.pull_request.user.type != 'Bot') ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request != null &&
+       (startsWith(github.event.comment.body, '/review') ||
+        startsWith(github.event.comment.body, '/describe') ||
+        startsWith(github.event.comment.body, '/improve') ||
+        startsWith(github.event.comment.body, '/ask'))) ||
+      github.event_name == 'workflow_dispatch'
+
+    # Self-hosted WSL2 Ubuntu runner on the trading machine. Set up via
+    # D:\Windows-CI\Scripts\Install-Wsl2LinuxRunner.ps1 (one-time, per repo).
+    # Avoids GitHub-hosted Linux minutes entirely. The `Linux` label
+    # differentiates from the Windows runners (which use `Windows`).
+    # Code never leaves the trading machine; OpenRouter is the only outbound.
+    runs-on: [self-hosted, Linux, X64, local-wsl, windows-ci]
+    timeout-minutes: 10
+
+    permissions:
+      pull-requests: write
+      contents: read
+      issues: write
+
+    steps:
+      - name: PR Agent
+        uses: qodo-ai/pr-agent@main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+          CONFIG.MODEL: "openrouter/deepseek/deepseek-v4-pro"
+          CONFIG.FALLBACK_MODELS: '["openrouter/deepseek/deepseek-v4-flash"]'
+          OPENROUTER.KEY: ${{ secrets.OPENROUTER_API_KEY }}
+
+          GITHUB_ACTION_CONFIG.AUTO_REVIEW:   "true"
+          GITHUB_ACTION_CONFIG.AUTO_DESCRIBE: "true"
+          GITHUB_ACTION_CONFIG.AUTO_IMPROVE:  "false"
+          # Default PR_ACTIONS is ["opened","reopened","ready_for_review","review_requested"].
+          # Adding "synchronize" so PR-Agent re-fires when new commits land on the PR.
+          GITHUB_ACTION_CONFIG.PR_ACTIONS: '["opened","reopened","ready_for_review","review_requested","synchronize"]'
+
+          PR_REVIEWER.REQUIRE_TESTS_REVIEW:        "true"
+          PR_REVIEWER.REQUIRE_SECURITY_REVIEW:     "true"
+          PR_REVIEWER.REQUIRE_FOCUSED_REVIEW:      "true"
+          PR_REVIEWER.NUM_CODE_SUGGESTIONS:        "0"
+
+          PR_DESCRIPTION.PUBLISH_LABELS:           "true"
+          PR_DESCRIPTION.ADD_ORIGINAL_USER_DESCRIPTION: "true"
+          PR_DESCRIPTION.GENERATE_AI_TITLE:        "false"
+
+          CONFIG.MAX_DESCRIPTION_TOKENS:           "1500"
+          CONFIG.MAX_COMMITS_TOKENS:               "500"
+          CONFIG.PATCH_EXTRA_LINES:                "1"
+          CONFIG.LOG_LEVEL:                        "INFO"
+          CONFIG.GIT_PROVIDER:                     "github"
+          # DeepSeek V4 (Pro/Flash) and other newer models aren't in PR-Agent's
+          # hardcoded MAX_TOKENS dict yet. Without this, calls fail with:
+          #   "Ensure <model> is defined in MAX_TOKENS in ./pr_agent/algo/__init__.py"
+          # 65536 is well below V4's 1M context but plenty for PR diff review.
+          CONFIG.CUSTOM_MODEL_MAX_TOKENS:          "65536"
