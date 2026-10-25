@@ -6,6 +6,20 @@ labels: []
 ---
 
 <!--
+MINIMUM BAR - every issue, however small, must answer these. A two-line ticket is fine if it does.
+
+  1. What is wrong or wanted        (the request, in the owner's words where you have them)
+  2. Where                          (repo, path, machine, or "none - ops task")
+  3. How we know it is finished     (a command, URL or observation, not a feeling)
+  4. Who asked                      (human name, or the agent that raised it)
+
+Scale the rest to the size of the change. A typo fix does not need a rollout plan; a feature that
+touches live trading does. When in doubt, write more - silence is what costs an agent a wasted run.
+
+The codebase is the source of truth. If this issue and the code disagree, the code is right.
+-->
+
+<!--
 This template IS the brief. It is read by an autonomous agent that cannot ask you anything, and by a
 human who needs to know months later what happened and why. Fill every section.
 
